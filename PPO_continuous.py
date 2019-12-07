@@ -51,7 +51,6 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
     
     def act(self, state, memory):
-        print(state.shape)
         action_mean = self.actor(state)
         cov_mat = torch.diag(self.action_var).to(device)
         
