@@ -4,6 +4,10 @@ from torch.distributions import MultivariateNormal
 import gym
 import numpy as np
 
+import functools
+import operator
+import gym_duckietown
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Memory:
@@ -47,6 +51,7 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
     
     def act(self, state, memory):
+        print(state.shape)
         action_mean = self.actor(state)
         cov_mat = torch.diag(self.action_var).to(device)
         
@@ -137,7 +142,8 @@ class PPO:
         
 def main():
     ############## Hyperparameters ##############
-    env_name = "BipedalWalker-v2"
+    # env_name = "BipedalWalker-v2"
+    env_name = 'Duckietown-udem1-v0'
     render = False
     solved_reward = 300         # stop training if avg_reward > solved_reward
     log_interval = 20           # print avg reward in the interval
@@ -158,7 +164,9 @@ def main():
     
     # creating environment
     env = gym.make(env_name)
-    state_dim = env.observation_space.shape[0]
+    # state_dim = env.observation_space.shape[0]
+    state_dim = env.observation_space.shape
+    state_dim = functools.reduce(operator.mul, state_dim, 1)
     action_dim = env.action_space.shape[0]
     
     if random_seed:
