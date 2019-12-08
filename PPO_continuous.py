@@ -98,7 +98,7 @@ class PPO:
         state = torch.FloatTensor(state.reshape(1, -1)).to(device)
         return self.policy_old.act(state, memory).cpu().data.numpy().flatten()
     
-    def update(self, memory):
+    def update(self, memory, batch_size):
         # Monte Carlo estimate of rewards:
         rewards = []
         discounted_reward = 0
@@ -113,28 +113,34 @@ class PPO:
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
         
         # convert list to tensor
-        old_states = torch.squeeze(torch.stack(memory.states).to(device)).detach()
-        old_actions = torch.squeeze(torch.stack(memory.actions).to(device)).detach()
-        old_logprobs = torch.squeeze(torch.stack(memory.logprobs)).to(device).detach()
+        # old_states = torch.squeeze(torch.stack(memory.states).to(device)).detach()
+        # old_actions = torch.squeeze(torch.stack(memory.actions).to(device)).detach()
+        # old_logprobs = torch.squeeze(torch.stack(memory.logprobs)).to(device).detach()
         
         # Optimize policy for K epochs:
         for _ in range(self.K_epochs):
-            # Evaluating old actions and values :
-            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
-            
-            # Finding the ratio (pi_theta / pi_theta__old):
-            ratios = torch.exp(logprobs - old_logprobs.detach())
+            for start_batch in range(0, len(memory.states), batch_size):
+                end_batch = min(start_batch+batch_size, len(memory.states))
+                old_states = torch.squeeze(torch.stack(memory.states[start_batch:end_batch]).to(device)).detach()
+                old_actions = torch.squeeze(torch.stack(memory.actions[start_batch:end_batch]).to(device)).detach()
+                old_logprobs = torch.squeeze(torch.stack(memory.logprobs[start_batch:end_batch])).to(device).detach()
+        
+                # Evaluating old actions and values :
+                logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
+                
+                # Finding the ratio (pi_theta / pi_theta__old):
+                ratios = torch.exp(logprobs - old_logprobs.detach())
 
-            # Finding Surrogate Loss:
-            advantages = rewards - state_values.detach()   
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
-            loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards) - 0.01*dist_entropy
-            
-            # take gradient step
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
+                # Finding Surrogate Loss:
+                advantages = rewards[start_batch:end_batch] - state_values.detach()   
+                surr1 = ratios * advantages
+                surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
+                loss = -torch.min(surr1, surr2) + 0.5*self.MseLoss(state_values, rewards[start_batch:end_batch]) - 0.01*dist_entropy
+                
+                # take gradient step
+                self.optimizer.zero_grad()
+                loss.mean().backward()
+                self.optimizer.step()
             
         # Copy new weights into old policy:
         self.policy_old.load_state_dict(self.policy.state_dict())
@@ -142,12 +148,13 @@ class PPO:
 def main():
     ############## Hyperparameters ##############
     # env_name = "BipedalWalker-v2"
-    env_name = 'Duckietown-udem1-v0'
+    env_name = 'Duckietown-loop_empty-v0'
     render = False
     solved_reward = 300         # stop training if avg_reward > solved_reward
     log_interval = 20           # print avg reward in the interval
     max_episodes = 10000        # max training episodes
     max_timesteps = 1500        # max timesteps in one episode
+    batch_size = 64             # minibatches size for training
     
     update_timestep = 4000      # update policy every n timesteps
     action_std = 0.5            # constant std for action distribution (Multivariate Normal)
@@ -198,7 +205,7 @@ def main():
             
             # update if its time
             if time_step % update_timestep == 0:
-                ppo.update(memory)
+                ppo.update(memory, batch_size)
                 memory.clear_memory()
                 time_step = 0
             running_reward += reward
