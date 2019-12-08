@@ -8,6 +8,8 @@ import functools
 import operator
 import random
 import gym_duckietown
+import argparse
+import pandas as pd
 import sys
 sys.path.append("../gym-duckietown/")
 import learning.reinforcement.pytorch.ddpg as ddpg
@@ -170,27 +172,18 @@ class PPO:
         # Copy new weights into old policy:
         self.policy_old.load_state_dict(self.policy.state_dict())
         
-def main():
+def _main(args):
     ############## Hyperparameters ##############
     # env_name = "BipedalWalker-v2"
     env_name = 'Duckietown-loop_empty-v0'
     render = False
-    solved_reward = 300         # stop training if avg_reward > solved_reward
-    log_interval = 10           # print avg reward in the interval
-    max_episodes = 1000        # max training episodes
-    max_timesteps = 1500        # max timesteps in one episode
-    
-    update_timestep = 1000      # update policy every n timesteps
-    action_std = 0.5            # constant std for action distribution (Multivariate Normal)
-    K_epochs = 20               # update policy for K epochs
-    eps_clip = 0.2              # clip parameter for PPO
-    gamma = 0.99                # discount factor
-    batch_size = 32
     
     lr = 0.0003                 # parameters for Adam optimizer
     betas = (0.9, 0.999)
     
     random_seed = None
+
+    print(args)
     #############################################
     
     # creating environment
@@ -215,18 +208,20 @@ def main():
         np.random.seed(random_seed)
     
     memory = Memory()
-    ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip, max_action, batch_size)
+    ppo = PPO(state_dim, action_dim, args.action_std, lr, betas, args.gamma, args.K_epochs, args.eps_clip, max_action, args.batch_size)
     print(lr,betas)
     
     # logging variables
     running_reward = 0
     avg_length = 0
     time_step = 0
+    episode_reward = 0
+    stats = pd.DataFrame(columns = ["Episode", "Length", "Reward"])
     
     # training loop
-    for i_episode in range(1, max_episodes+1):
+    for i_episode in range(1, args.max_episodes+1):
         state = env.reset()
-        for t in range(max_timesteps):
+        for t in range(args.max_timesteps):
             time_step +=1
             # Running policy_old:
             action = ppo.select_action(state, memory)
@@ -237,37 +232,45 @@ def main():
             memory.is_terminals.append(done)
             
             # update if its time
-            if time_step % update_timestep == 0:
+            if time_step % args.update_timestep == 0:
                 ppo.update(memory)
                 memory.clear_memory()
                 time_step = 0
-            running_reward += reward
+            episode_reward += reward
             if render:
                 env.render()
             if done:
                 break
         
         avg_length += t
+        stats = stats.append({"Episode" : i_episode, "Length" : t, "Reward" : episode_reward}, ignore_index=True)
+        running_reward += episode_reward
+        episode_reward = 0
         
-        # stop training if avg_reward > solved_reward
-        # if running_reward > (log_interval*solved_reward):
-        #     print("########## Solved! ##########")
-        #     torch.save(ppo.policy.state_dict(), './PPO_continuous_solved_{}.pth'.format(env_name))
-        #     break
-        
-        # save every 500 episodes
-        if i_episode % 500 == 0:
+        if i_episode % args.store_interval == 0:
             torch.save(ppo.policy.state_dict(), './PPO_continuous_{}.pth'.format(env_name))
+            stats.to_csv("PPO_stats.csv", index=False)
             
         # logging
-        if i_episode % log_interval == 0:
-            avg_length = int(avg_length/log_interval)
-            running_reward = int((running_reward/log_interval))
+        if i_episode % args.log_interval == 0:
+            avg_length = int(avg_length/args.log_interval)
+            running_reward = int((running_reward/args.log_interval))
             
             print('Episode {} \t Avg length: {} \t Avg reward: {}'.format(i_episode, avg_length, running_reward))
             running_reward = 0
             avg_length = 0
             
 if __name__ == '__main__':
-    main()
-    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--log_interval", default = 10, type = int, help = "print avg reward in the interval")
+    parser.add_argument("--max_episodes", default = 1000, type = int, help = "max training episodes")
+    parser.add_argument("--max_timesteps", default = 1500, type = int, help = "max timesteps in one episode")
+    parser.add_argument("--update_timestep", default = 1000, type = int, help = "update policy every n timesteps")
+    parser.add_argument("--action_std", default = 0.05, type = float, help = "constant std for action distribution (Multivariate Normal)")
+    parser.add_argument("--K_epochs", default = 20, type = int, help = "update policy for K epochs")
+    parser.add_argument("--eps_clip", default = 0.2, type = float, help = "clip parameter for PPO")
+    parser.add_argument("--gamma", default = 0.99, type = float, help = "discount factor")
+    parser.add_argument("--batch_size", default = 32, type = int, help = "mini batch size")
+    parser.add_argument("--store_interval", default = 200, type = int, help = "interval for storing a backup of the model")
+
+    _main(parser.parse_args())
