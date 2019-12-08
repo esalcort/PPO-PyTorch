@@ -50,23 +50,6 @@ class PPOCriticCNN(ddpg.CriticCNN):
 class ActorCritic(nn.Module):
     def __init__(self, state_dim, action_dim, action_std, max_action):
         super(ActorCritic, self).__init__()
-        # action mean range -1 to 1
-        # self.actor =  nn.Sequential(
-        #         nn.Linear(state_dim, 64),
-        #         nn.Tanh(),
-        #         nn.Linear(64, 32),
-        #         nn.Tanh(),
-        #         nn.Linear(32, action_dim),
-        #         nn.Tanh()
-        #         )
-        # # critic
-        # self.critic = nn.Sequential(
-        #         nn.Linear(state_dim, 64),
-        #         nn.Tanh(),
-        #         nn.Linear(64, 32),
-        #         nn.Tanh(),
-        #         nn.Linear(32, 1)
-        #         )
         self.actor = ddpg.ActorCNN(action_dim, max_action)
         self.critic = PPOCriticCNN()
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
@@ -80,6 +63,9 @@ class ActorCritic(nn.Module):
         
         dist = MultivariateNormal(action_mean, cov_mat)
         action = dist.sample()
+        # Don't allow duckie to go backwards or spin in place
+        action[:,0] = np.clip(action[:,0], 0, None)
+        action[:,1] = np.clip(action[:,0], -1, 1)
         action_logprob = dist.log_prob(action)
         
         memory.states.append(state)
@@ -187,7 +173,7 @@ class PPO:
 def main():
     ############## Hyperparameters ##############
     # env_name = "BipedalWalker-v2"
-    env_name = 'Duckietown-udem1-v0'
+    env_name = 'Duckietown-loop_empty-v0'
     render = False
     solved_reward = 300         # stop training if avg_reward > solved_reward
     log_interval = 10           # print avg reward in the interval
