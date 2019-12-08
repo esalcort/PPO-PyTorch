@@ -6,6 +6,7 @@ import numpy as np
 
 import functools
 import operator
+import random
 import gym_duckietown
 import sys
 sys.path.append("../gym-duckietown/")
@@ -87,12 +88,13 @@ class ActorCritic(nn.Module):
         return action_logprobs, torch.squeeze(state_value), dist_entropy
 
 class PPO:
-    def __init__(self, state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip, max_action):
+    def __init__(self, state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip, max_action, batch_size):
         self.lr = lr
         self.betas = betas
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
+        self.batch_size = batch_size
         
         self.policy = ActorCritic(state_dim, action_dim, action_std, max_action).to(device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr, betas=betas)
@@ -109,16 +111,7 @@ class PPO:
         state = torch.FloatTensor(np.expand_dims(state, axis=0)).to(device)
         return self.policy_old.act(state, memory).cpu().data.numpy().flatten()
     
-    def update(self, memory):
-        # Monte Carlo estimate of rewards:
-        rewards = []
-        discounted_reward = 0
-        for reward, is_terminal in zip(reversed(memory.rewards), reversed(memory.is_terminals)):
-            if is_terminal:
-                discounted_reward = 0
-            discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
-        
+    def update_batch(self, memory, rewards):
         # Normalizing the rewards:
         rewards = torch.tensor(rewards).to(device)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
@@ -129,7 +122,7 @@ class PPO:
         old_logprobs = torch.squeeze(torch.stack(memory.logprobs)).to(device).detach()
         
         # Optimize policy for K epochs:
-        for _ in range(self.K_epochs):
+        for _ in range(1):
             # Evaluating old actions and values :
             logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
             
@@ -147,6 +140,32 @@ class PPO:
             loss.mean().backward()
             self.optimizer.step()
             
+    def update(self, memory):
+        # Monte Carlo estimate of rewards:
+        rewards = []
+        discounted_reward = 0
+        for reward, is_terminal in zip(reversed(memory.rewards), reversed(memory.is_terminals)):
+            if is_terminal:
+                discounted_reward = 0
+            discounted_reward = reward + (self.gamma * discounted_reward)
+            rewards.insert(0, discounted_reward)
+        
+        batches = []
+        total_samples = len(memory.states)
+        # Create batches
+        for start in range(0, total_samples, self.batch_size):
+            last = min(total_samples, start+self.batch_size)
+            batch = Memory()
+            batch.actions = memory.actions[start:last]
+            batch.states = memory.states[start:last]
+            batch.rewards = memory.rewards[start:last]
+            batch.logbprobs = memory.logbprobs[start:last]
+            batch.is_terminals = memory.is_terminals[start:last]
+            batches.append(batch, rewards[start:last])
+        random.shuffle(batches)
+        for _ in range(self.K_epochs):
+            for batch in batches:
+                self.update_batch(batch[0], batch[1])
         # Copy new weights into old policy:
         self.policy_old.load_state_dict(self.policy.state_dict())
         
@@ -156,8 +175,8 @@ def main():
     env_name = 'Duckietown-udem1-v0'
     render = False
     solved_reward = 300         # stop training if avg_reward > solved_reward
-    log_interval = 20           # print avg reward in the interval
-    max_episodes = 10000        # max training episodes
+    log_interval = 10           # print avg reward in the interval
+    max_episodes = 1000        # max training episodes
     max_timesteps = 1500        # max timesteps in one episode
     
     update_timestep = 4000      # update policy every n timesteps
@@ -165,6 +184,7 @@ def main():
     K_epochs = 80               # update policy for K epochs
     eps_clip = 0.2              # clip parameter for PPO
     gamma = 0.99                # discount factor
+    batch_size = 64
     
     lr = 0.0003                 # parameters for Adam optimizer
     betas = (0.9, 0.999)
@@ -194,7 +214,7 @@ def main():
         np.random.seed(random_seed)
     
     memory = Memory()
-    ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip, max_action)
+    ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip, max_action, batch_size)
     print(lr,betas)
     
     # logging variables
@@ -229,10 +249,10 @@ def main():
         avg_length += t
         
         # stop training if avg_reward > solved_reward
-        if running_reward > (log_interval*solved_reward):
-            print("########## Solved! ##########")
-            torch.save(ppo.policy.state_dict(), './PPO_continuous_solved_{}.pth'.format(env_name))
-            break
+        # if running_reward > (log_interval*solved_reward):
+        #     print("########## Solved! ##########")
+        #     torch.save(ppo.policy.state_dict(), './PPO_continuous_solved_{}.pth'.format(env_name))
+        #     break
         
         # save every 500 episodes
         if i_episode % 500 == 0:
