@@ -7,6 +7,12 @@ import numpy as np
 import functools
 import operator
 import gym_duckietown
+import sys
+sys.path.append("../gym-duckietown/")
+import learning.reinforcement.pytorch.ddpg as ddpg
+from learning.utils.wrappers import NormalizeWrapper, ImgWrapper, \
+    DtRewardWrapper, ActionWrapper, ResizeWrapper
+from learning.utils.env import launch_env
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -26,25 +32,27 @@ class Memory:
         del self.is_terminals[:]
 
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, action_std):
+    def __init__(self, state_dim, action_dim, action_std, max_action):
         super(ActorCritic, self).__init__()
         # action mean range -1 to 1
-        self.actor =  nn.Sequential(
-                nn.Linear(state_dim, 64),
-                nn.Tanh(),
-                nn.Linear(64, 32),
-                nn.Tanh(),
-                nn.Linear(32, action_dim),
-                nn.Tanh()
-                )
-        # critic
-        self.critic = nn.Sequential(
-                nn.Linear(state_dim, 64),
-                nn.Tanh(),
-                nn.Linear(64, 32),
-                nn.Tanh(),
-                nn.Linear(32, 1)
-                )
+        # self.actor =  nn.Sequential(
+        #         nn.Linear(state_dim, 64),
+        #         nn.Tanh(),
+        #         nn.Linear(64, 32),
+        #         nn.Tanh(),
+        #         nn.Linear(32, action_dim),
+        #         nn.Tanh()
+        #         )
+        # # critic
+        # self.critic = nn.Sequential(
+        #         nn.Linear(state_dim, 64),
+        #         nn.Tanh(),
+        #         nn.Linear(64, 32),
+        #         nn.Tanh(),
+        #         nn.Linear(32, 1)
+        #         )
+        self.actor = ddpg.ActorCNN(action_dim, max_action)
+        self.critic = ddpg.CriticCNN(action_dim)
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
         
     def forward(self):
@@ -79,23 +87,26 @@ class ActorCritic(nn.Module):
         return action_logprobs, torch.squeeze(state_value), dist_entropy
 
 class PPO:
-    def __init__(self, state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip):
+    def __init__(self, state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip, max_action):
         self.lr = lr
         self.betas = betas
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         
-        self.policy = ActorCritic(state_dim, action_dim, action_std).to(device)
+        self.policy = ActorCritic(state_dim, action_dim, action_std, max_action).to(device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr, betas=betas)
         
-        self.policy_old = ActorCritic(state_dim, action_dim, action_std).to(device)
+        self.policy_old = ActorCritic(state_dim, action_dim, action_std,max_action).to(device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
     
     def select_action(self, state, memory):
-        state = torch.FloatTensor(state.reshape(1, -1)).to(device)
+        #if flat
+        # state = torch.FloatTensor(state.reshape(1, -1)).to(device)
+        state = np.array(state)
+        state = torch.FloatTensor(np.expand_dims(state, axis=0)).to(device)
         return self.policy_old.act(state, memory).cpu().data.numpy().flatten()
     
     def update(self, memory, batch_size):
@@ -169,11 +180,19 @@ def main():
     #############################################
     
     # creating environment
-    env = gym.make(env_name)
+    env = launch_env()
+    # Wrappers
+    env = ResizeWrapper(env)
+    env = NormalizeWrapper(env)
+    env = ImgWrapper(env) # to make the images from 160x120x3 into 3x160x120
+    env = ActionWrapper(env)
+    env = DtRewardWrapper(env)
+    print("Initialized Wrappers")
     # state_dim = env.observation_space.shape[0]
     state_dim = env.observation_space.shape
     state_dim = functools.reduce(operator.mul, state_dim, 1)
     action_dim = env.action_space.shape[0]
+    max_action = float(env.action_space.high[0])
     
     if random_seed:
         print("Random Seed: {}".format(random_seed))
@@ -182,7 +201,7 @@ def main():
         np.random.seed(random_seed)
     
     memory = Memory()
-    ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip)
+    ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip, max_action)
     print(lr,betas)
     
     # logging variables
