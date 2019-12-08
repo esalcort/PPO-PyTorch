@@ -32,6 +32,21 @@ class Memory:
         del self.rewards[:]
         del self.is_terminals[:]
 
+class PPOCriticCNN(ddpg.CriticCNN):
+    def __init__(self):
+        super(PPOCriticCNN, self).__init__(0)
+    def forward(self, states):
+        # From learning/reinforcement/pytorch/ddpg.py remove actions
+        x = self.bn1(self.lr(self.conv1(states)))
+        x = self.bn2(self.lr(self.conv2(x)))
+        x = self.bn3(self.lr(self.conv3(x)))
+        x = self.bn4(self.lr(self.conv4(x)))
+        x = x.view(x.size(0), -1)
+        x = self.lr(self.lin1(x))
+        x = self.lr(self.lin2(x))
+        x = self.lin3(x)
+        return x
+
 class ActorCritic(nn.Module):
     def __init__(self, state_dim, action_dim, action_std, max_action):
         super(ActorCritic, self).__init__()
@@ -53,7 +68,7 @@ class ActorCritic(nn.Module):
         #         nn.Linear(32, 1)
         #         )
         self.actor = ddpg.ActorCNN(action_dim, max_action)
-        self.critic = ddpg.CriticCNN(action_dim)
+        self.critic = PPOCriticCNN()
         self.action_var = torch.full((action_dim,), action_std*action_std).to(device)
         
     def forward(self):
@@ -159,9 +174,9 @@ class PPO:
             batch.actions = memory.actions[start:last]
             batch.states = memory.states[start:last]
             batch.rewards = memory.rewards[start:last]
-            batch.logbprobs = memory.logbprobs[start:last]
+            batch.logprobs = memory.logprobs[start:last]
             batch.is_terminals = memory.is_terminals[start:last]
-            batches.append(batch, rewards[start:last])
+            batches.append([batch, rewards[start:last]])
         random.shuffle(batches)
         for _ in range(self.K_epochs):
             for batch in batches:
@@ -179,12 +194,12 @@ def main():
     max_episodes = 1000        # max training episodes
     max_timesteps = 1500        # max timesteps in one episode
     
-    update_timestep = 4000      # update policy every n timesteps
+    update_timestep = 1000      # update policy every n timesteps
     action_std = 0.5            # constant std for action distribution (Multivariate Normal)
-    K_epochs = 80               # update policy for K epochs
+    K_epochs = 20               # update policy for K epochs
     eps_clip = 0.2              # clip parameter for PPO
     gamma = 0.99                # discount factor
-    batch_size = 64
+    batch_size = 32
     
     lr = 0.0003                 # parameters for Adam optimizer
     betas = (0.9, 0.999)
