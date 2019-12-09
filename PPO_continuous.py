@@ -224,6 +224,7 @@ def _main(args):
     for i_episode in range(1, args.max_episodes+1):
         state = env.reset()
         done = False
+        t = 0
         while not done:
             time_step +=1
             # Running policy_old:
@@ -242,6 +243,7 @@ def _main(args):
             episode_reward += reward
             if render:
                 env.render()
+            t += 1
         
         avg_length += t
         # stats = stats.append({"Episode" : i_episode, "Length" : t, "Reward" : episode_reward}, ignore_index=True)
@@ -254,7 +256,7 @@ def _main(args):
             # stats.to_csv("PPO_stats.csv", index=False) #This line does not work on Google Colab!
             with open("PPO_stats.csv", 'a') as statsfile:
                 for eps, ts, rwd in stats:
-                    statsfile.write("%d, %d, %f"%(eps, rs, rwd) )
+                    statsfile.write("%d, %d, %f"%(eps, ts, rwd) )
             stats = []
             
         # logging
