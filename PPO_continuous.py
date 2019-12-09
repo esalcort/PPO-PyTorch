@@ -223,7 +223,8 @@ def _main(args):
     # training loop
     for i_episode in range(1, args.max_episodes+1):
         state = env.reset()
-        for t in range(args.max_timesteps):
+        done = False
+        while not done:
             time_step +=1
             # Running policy_old:
             action = ppo.select_action(state, memory)
@@ -241,8 +242,6 @@ def _main(args):
             episode_reward += reward
             if render:
                 env.render()
-            if done:
-                break
         
         avg_length += t
         # stats = stats.append({"Episode" : i_episode, "Length" : t, "Reward" : episode_reward}, ignore_index=True)
@@ -271,7 +270,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--log_interval", default = 10, type = int, help = "print avg reward in the interval")
     parser.add_argument("--max_episodes", default = 1000, type = int, help = "max training episodes")
-    parser.add_argument("--max_timesteps", default = 1500, type = int, help = "max timesteps in one episode")
+    parser.add_argument("--max_timesteps", default = 1500, type = int, help = "(deprecated) max timesteps in one episode")
     parser.add_argument("--update_timestep", default = 1000, type = int, help = "update policy every n timesteps")
     parser.add_argument("--action_std", default = 0.05, type = float, help = "constant std for action distribution (Multivariate Normal)")
     parser.add_argument("--K_epochs", default = 20, type = int, help = "update policy for K epochs")
