@@ -219,13 +219,11 @@ def _main(args):
     # stats = pd.DataFrame(columns = ["Episode", "Length", "Reward"])
     stats = []
     with open("PPO_stats.csv", 'w') as statsfile:
-        statsfile.write("Epoch, Timesteps, Reward")
+        statsfile.write("Epoch, Timesteps, Reward\n")
     # training loop
     for i_episode in range(1, args.max_episodes+1):
         state = env.reset()
-        done = False
-        t = 0
-        while not done:
+        for t in range(args.max_timesteps):
             time_step +=1
             # Running policy_old:
             action = ppo.select_action(state, memory)
@@ -243,7 +241,8 @@ def _main(args):
             episode_reward += reward
             if render:
                 env.render()
-            t += 1
+            if done:
+                break
         
         avg_length += t
         # stats = stats.append({"Episode" : i_episode, "Length" : t, "Reward" : episode_reward}, ignore_index=True)
@@ -256,7 +255,7 @@ def _main(args):
             # stats.to_csv("PPO_stats.csv", index=False) #This line does not work on Google Colab!
             with open("PPO_stats.csv", 'a') as statsfile:
                 for eps, ts, rwd in stats:
-                    statsfile.write("%d, %d, %f"%(eps, ts, rwd) )
+                    statsfile.write("%d, %d, %f\n"%(eps, ts, rwd) )
             stats = []
             
         # logging
@@ -272,7 +271,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--log_interval", default = 10, type = int, help = "print avg reward in the interval")
     parser.add_argument("--max_episodes", default = 1000, type = int, help = "max training episodes")
-    parser.add_argument("--max_timesteps", default = 1500, type = int, help = "(deprecated) max timesteps in one episode")
+    parser.add_argument("--max_timesteps", default = 1500, type = int, help = "max timesteps in one episode")
     parser.add_argument("--update_timestep", default = 1000, type = int, help = "update policy every n timesteps")
     parser.add_argument("--action_std", default = 0.05, type = float, help = "constant std for action distribution (Multivariate Normal)")
     parser.add_argument("--K_epochs", default = 20, type = int, help = "update policy for K epochs")
