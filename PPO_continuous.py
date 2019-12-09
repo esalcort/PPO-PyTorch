@@ -9,7 +9,7 @@ import operator
 import random
 import gym_duckietown
 import argparse
-import pandas as pd
+# import pandas as pd
 import sys
 sys.path.append("../gym-duckietown/")
 import learning.reinforcement.pytorch.ddpg as ddpg
@@ -66,8 +66,8 @@ class ActorCritic(nn.Module):
         dist = MultivariateNormal(action_mean, cov_mat)
         action = dist.sample()
         # Don't allow duckie to go backwards or spin in place
-        action[:,0] = np.clip(action[:,0], 0, None)
-        action[:,1] = np.clip(action[:,0], -1, 1)
+        action[:,0] = torch.clamp(action[:,0], min=0)
+        action[:,1] = torch.clamp(action[:,1], min=-1, max=1)
         action_logprob = dist.log_prob(action)
         
         memory.states.append(state)
@@ -216,8 +216,10 @@ def _main(args):
     avg_length = 0
     time_step = 0
     episode_reward = 0
-    stats = pd.DataFrame(columns = ["Episode", "Length", "Reward"])
-    
+    # stats = pd.DataFrame(columns = ["Episode", "Length", "Reward"])
+    stats = []
+    with open("PPO_stats.csv", 'w') as statsfile:
+        statsfile.write("Epoch, Timesteps, Reward")
     # training loop
     for i_episode in range(1, args.max_episodes+1):
         state = env.reset()
@@ -243,13 +245,18 @@ def _main(args):
                 break
         
         avg_length += t
-        stats = stats.append({"Episode" : i_episode, "Length" : t, "Reward" : episode_reward}, ignore_index=True)
+        # stats = stats.append({"Episode" : i_episode, "Length" : t, "Reward" : episode_reward}, ignore_index=True)
+        stats.append( (i_episode, t, episode_reward) )
         running_reward += episode_reward
         episode_reward = 0
         
         if i_episode % args.store_interval == 0:
             torch.save(ppo.policy.state_dict(), './PPO_continuous_{}.pth'.format(env_name))
-            stats.to_csv("PPO_stats.csv", index=False)
+            # stats.to_csv("PPO_stats.csv", index=False) #This line does not work on Google Colab!
+            with open("PPO_stats.csv", 'a') as statsfile:
+                for eps, ts, rwd in stats:
+                    statsfile.write("%d, %d, %f"%(eps, rs, rwd) )
+            stats = []
             
         # logging
         if i_episode % args.log_interval == 0:
