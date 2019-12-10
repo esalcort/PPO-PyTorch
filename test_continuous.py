@@ -35,16 +35,16 @@ def test():
     state_dim = functools.reduce(operator.mul, state_dim, 1)
     max_action = float(env.action_space.high[0])
     
-    n_episodes = 10          # num of episodes to run
-    max_timesteps = 1500    # max timesteps in one episode
+    n_episodes = 3          # num of episodes to run
+    max_timesteps = 500    # max timesteps in one episode
     render = True           # render the environment
     save_gif = False        # png images are saved in gif folder
     
     # filename and directory to load model from
-    filename = "PPO_continuous_solved_" +env_name+ ".pth"
-    directory = "./"
+    filename = "PPO_continuous_" +env_name+ ".pth"
+    directory = "./preTrained/"
 
-    action_std = 0.5        # constant std for action distribution (Multivariate Normal)
+    action_std = 0.05        # constant std for action distribution (Multivariate Normal)
     K_epochs = 80           # update policy for K epochs
     eps_clip = 0.2          # clip parameter for PPO
     gamma = 0.99            # discount factor
@@ -54,8 +54,8 @@ def test():
     #############################################
     
     memory = Memory()
-    ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip,max_action)
-    ppo.policy_old.load_state_dict(torch.load(directory+filename))
+    ppo = PPO(state_dim, action_dim, action_std, lr, betas, gamma, K_epochs, eps_clip,max_action, 32)
+    ppo.policy_old.load_state_dict(torch.load(directory+filename, map_location=torch.device('cpu')))
     
     for ep in range(1, n_episodes+1):
         ep_reward = 0
